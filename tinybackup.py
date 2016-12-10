@@ -6,7 +6,10 @@ import subprocess
 import re
 import hashlib
 import tempfile
+import logging
+import sys
 
+# Constants
 QUEUE = 'z'
 ID_LEVELS = [
 	[],
@@ -14,7 +17,33 @@ ID_LEVELS = [
 	["jobs with this source and destination", "files", "same files"],
 	["jobs exactly like this one", "jobs just like this one", "jobs identical to this one", "this", "this job", "this time", "exact", "identical", "time"]
 ]
+
+def init_logger():
+	# Silly class to allow info messages printed by this script to not get
+	# stamped: http://stackoverflow.com/questions/1343227
+	class NonInfoStampedFormatter(logging.Formatter):
+		info_fmt = logging.Formatter('%(message)s ')
+		other_fmt = logging.Formatter('%(levelname)s in %(name)s: %(message)s')
+		def format(self, record):
+			if record.levelno == logging.INFO:
+				return self.info_fmt.format(record)
+			else:
+				return self.other_fmt.format(record)
+	ch = logging.StreamHandler(sys.stderr)
+	ch.setFormatter(NonInfoStampedFormatter())
+	ch.setLevel(logging.DEBUG)
+	logger = logging.getLogger(__file__)
+	logger.addHandler(ch)
+	logger.setLevel(logging.INFO)
+	logger.propagate = False
+	return logger
+
+# Global vars
+LOGGER = init_logger()
 ARGUMENT_PARSER = argparse.ArgumentParser(description='Schedule a repeated backup of a single file.')
+
+def i(msg):
+	return LOGGER.info(msg)
 
 def positive_int(value):
 	ivalue = 0
@@ -74,7 +103,7 @@ def remove_atjob(num):
 	# Never outputs or changes exit code, even in error.
 	return subprocess.check_call(["at", "-r", str(num)])
 
-def get_atjobs_with_string(string, debug=False):
+def get_atjobs_with_string(string):
 	jobs = []
 	for line in subprocess.check_output(["at", "-l", "-q", QUEUE]).decode('ascii').split("\n"):
 		line = line.strip()
@@ -89,8 +118,7 @@ def get_atjobs_with_string(string, debug=False):
 							"schedule": " ".join(line).strip(),
 							"command": statement,
 						}
-						if debug:
-							print("debug: found job: " + str(job))
+						LOGGER.debug("found job: " + str(job))
 						jobs.append(job)
 					break
 	return jobs
@@ -112,7 +140,7 @@ def verify_exe(cmd):
 		# We use -l since --help is noncompliant and returns 1
 		subprocess.check_call(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	except:
-		print("Could not invoke '{}'; this script cannot function".format(cmd[0]))
+		i("Could not invoke '{}'; this script cannot function".format(cmd[0]))
 		raise
 
 def parse_args():
@@ -146,7 +174,7 @@ def parse_args():
 			if not args.time:
 				ARGUMENT_PARSER.error("--time is required with --{} '{}'".format(formattpl[1], timelevelname))
 		elif args.time:
-			print("warning: --time is useless with --{0} '{1}'; it is only used with --statusof '{2}' or --uninstall '{2}'".format(
+			i("warning: --time is useless with --{0} '{1}'; it is only used with --statusof '{2}' or --uninstall '{2}'".format(
 				formattpl[1],
 				ID_LEVELS[formattpl[0]][0],
 				timelevelname
@@ -158,7 +186,8 @@ def parse_args():
 		ARGUMENT_PARSER.error("--time can only be combined with --install or --uninstall '{}' actions".format(timelevelname))
 
 	if args.debug:
-		print("debug: " + str(args))
+		LOGGER.setLevel(logging.DEBUG)
+		LOGGER.debug(args)
 	return args
 
 # Using the below template so it could easily be put onto the filesystem and
@@ -231,7 +260,8 @@ def get_identifier(args, level=len(ID_LEVELS)):
 
 	return identifier
 
-def main():
+if __name__ == '__main__':
+	logging.info("WHY")
 	args = parse_args()
 	exitcode = 0
 	if args.install:
@@ -247,46 +277,45 @@ def main():
 			get_identifier(args)
 		]
 		add_atjob(relayargs + ["--run"], args.time["original"])
-		print("Scheduled backup to run at '{}'".format(args.time["parsed"]))
+		i("Scheduled backup to run at '{}'".format(args.time["parsed"]))
 		add_atjob(relayargs + ["--install", args.time["original"]], args.time["original"])
-		print("Scheduled this job to re-schedule itself at '{}'".format(args.time["parsed"]))
+		i("Scheduled this job to re-schedule itself at '{}'".format(args.time["parsed"]))
 	elif args.uninstall:
-		jobs = get_atjobs_with_string(get_identifier(args, args.uninstall), debug=args.debug)
+		jobs = get_atjobs_with_string(get_identifier(args, args.uninstall))
 		for job in jobs:
 			remove_atjob(job["id"])
-			print("Removed job ID {id} (scheduled for {schedule})".format(**job))
+			i("Removed job ID {id} (scheduled for {schedule})".format(**job))
 		if not jobs:
 			exitcode = 1
-			print("No jobs to remove.\n")
-			print("Use {} to remove all backup jobs from queue '{}'".format("--uninstall '{}'".format(ID_LEVELS[1][0]), QUEUE))
-			print("Use 'at -l -q {0} | cut -f1 | xargs at -r' to remove all jobs from queue '{0}'".format(QUEUE))
-			print("Use 'at -l | cut -f1 | xargs at -r' to remove all scheduled jobs of any kind from this system")
+			i("No jobs to remove.\n")
+			i("Use {} to remove all backup jobs from queue '{}'".format("--uninstall '{}'".format(ID_LEVELS[1][0]), QUEUE))
+			i("Use 'at -l -q {0} | cut -f1 | xargs at -r' to remove all jobs from queue '{0}'".format(QUEUE))
+			i("Use 'at -l | cut -f1 | xargs at -r' to remove all scheduled jobs of any kind from this system")
 	elif args.statusof:
 		identifier = get_identifier(args, args.statusof)
-		stripregex = re.compile(r"\s+(--identifier\s+{})\s+".format(re.escape(identifier)))
-		jobs = get_atjobs_with_string(identifier, debug=args.debug)
+		stripregex = re.compile(r"\s+(?:--identifier\s+\S*{}\S*)\s+".format(re.escape(identifier)))
+		jobs = get_atjobs_with_string(identifier)
 		if jobs:
-			print("Found {} jobs (job IDs are random):\n".format(len(jobs)))
-			print("\n\n".join([
+			i("Found {} jobs (job IDs are random):\n".format(len(jobs)))
+			i("\n\n".join([
 				"Job ID {id} is scheduled for {schedule}\nJob command: ".format(**job) + re.sub(stripregex, " ", job["command"])
 				for job in jobs
 			]))
 		else:
 			exitcode = 1
-			print("No jobs found. Do --statusof '{}' to view all jobs in the queue".format(ID_LEVELS[1][0]))
+			i("No jobs found. Do --statusof '{}' to view all jobs in the queue".format(ID_LEVELS[1][0]))
 	else: # args.run
 		# Handles automatic deletion of logrotate state file (our at-stored
 		# "state" is canonical; letting logrotate track state as well both
 		# creates unexpected messes, and may create unexpected issues), and
 		# the logrotate config file.
 		with tempfile.NamedTemporaryFile() as f, tempfile.NamedTemporaryFile() as statefile:
-			os.environ["LOGROTATE_SOURCE_FILE"] = os.path.abspath(args.sourcefile)
+			os.environ["LOGROTATE_SOURCE_FILE"] = os.path.realpath(args.sourcefile)
 			os.environ["LOGROTATE_KEEP_REVISIONS"] = args.keeprevisions
 			os.environ["LOGROTATE_DESTINATION_FOLDER"] = args.destinationdir
 			logrotateconf = os.path.expandvars(logrotate_template())
-			if args.debug:
-				print("debug: logrotate config about to be installed to '{}':".format(f.name))
-				print("debug: logrotate config contents:\n" + logrotateconf)
+			LOGGER.debug("logrotate config about to be installed to '{}':".format(f.name))
+			LOGGER.debug("logrotate config contents:\n" + logrotateconf)
 			f.write(logrotateconf.encode())
 			f.flush()
 			logrotateflags = "-v"
@@ -299,4 +328,3 @@ def main():
 				statefile.name,
 				f.name
 			])
-main()
