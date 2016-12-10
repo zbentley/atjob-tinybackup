@@ -25,12 +25,17 @@ This program is a *very* minimal backup utility. It supports:
 
 # Installation
 
-## OSX
-- Install homebrew:
-- Install logrotate:
-- Start the `at` daemon:
-- Put this script in a stable location
-- Run it
+This program has the following runtime requirements:
+- A running `atd` process. See [`at(1)`](https://linux.die.net/man/1/at) for more info.
+- Python (2 or 3; I have tested with 2.6, 2.7, 3.1, and 3.5).
+- [`logrotate`](https://linux.die.net/man/8/logrotate).
+
+### OSX
+- Install [homebrew](http://brew.sh/).
+- Install logrotate: `brew install logrotate`.
+- Start the `at` daemon: `sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.atrun.plist`.
+	- If that command does not work, open a terminal and type `man atrun` for activation instructions specific to your distribution of OSX.
+- Put this script in a stable location. If you move or delete the `tinybackup.py` file in between scheduled backups, all future backups will fail. You can have multiple copies of the script on your system. Many users find it convenient to place a copy of the `tinybackup.py` script in the same folder as the files which they are using it to back up.
 
 # Usage
 

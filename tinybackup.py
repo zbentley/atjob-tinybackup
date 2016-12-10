@@ -10,9 +10,9 @@ import tempfile
 QUEUE = 'z'
 ID_LEVELS = [
 	[],
-	["all backup jobs", "all"],
-	["jobs with this source and destination", "files"],
-	["jobs exactly like this one", "this", "thisjob", "time", "bytime"]
+	["all backup jobs", "all", "queue"],
+	["jobs with this source and destination", "files", "same files"],
+	["jobs exactly like this one", "jobs just like this one", "jobs identical to this one", "this", "this job", "this time", "exact", "identical", "time"]
 ]
 ARGUMENT_PARSER = argparse.ArgumentParser(description='Schedule a repeated backup of a single file.')
 
@@ -30,24 +30,25 @@ def positive_int(value):
 # messes up our ability to do fingerprinting.
 def readable_file(value):
 	if os.path.isfile(value) and os.access(value, os.R_OK):
-		return value
+		return os.path.realpath(value)
 	else:
 		ARGUMENT_PARSER.error("'{}' is not a readable file".format(value))
 
 def writable_dir(value):
 	if os.path.isdir(value) and os.access(value, os.W_OK):
-		return value
+		return os.path.realpath(value)
 	else:
 		ARGUMENT_PARSER.error("'{}' is not a writable directory".format(value))
 
-def uninstall_level(value):
+def identity_level(value):
+	value = value.lower()
 	for idx, level in enumerate(ID_LEVELS):
 		if value in level:
 			return idx
-	uninstinfo = "Invalid value for --uninstall. Valid values and their roles are:\n"
-	for level in ID_LEVELS:
-		uninstinfo += "\tUninstall {}: {}\n".format(level[0], ', '.join('"{0}"'.format(w) for w in level))
-	ARGUMENT_PARSER.error(uninstinfo)
+	uninstinfo = "Invalid value '{}' for --uninstall. Valid values and their roles are:\n".format(value)
+	for level in ID_LEVELS[1:]:
+		uninstinfo += "Uninstall {}: {}\n".format(level[0], ', '.join('"{0}"'.format(w) for w in level))
+	ARGUMENT_PARSER.error(uninstinfo.rstrip())
 
 
 # Validates a timespec with "at". This could technically be done by just calling
@@ -73,15 +74,23 @@ def remove_atjob(num):
 	# Never outputs or changes exit code, even in error.
 	return subprocess.check_call(["at", "-r", str(num)])
 
-def get_atjobs_with_string(string):
+def get_atjobs_with_string(string, debug=False):
 	jobs = []
 	for line in subprocess.check_output(["at", "-l", "-q", QUEUE]).decode('ascii').split("\n"):
 		line = line.strip()
 		if line:
-			job = line.split()[0]
+			line = line.split()
+			job = line.pop(0)
 			for statement in reversed(subprocess.check_output(["at", "-c", job]).decode('ascii').split("\n")):
 				if statement.strip():
 					if string in statement:
+						job = {
+							"id": job,
+							"schedule": " ".join(line).strip(),
+							"command": statement,
+						}
+						if debug:
+							print("debug: found job: " + str(job))
 						jobs.append(job)
 					break
 	return jobs
@@ -113,7 +122,8 @@ def parse_args():
 	operations = ARGUMENT_PARSER.add_mutually_exclusive_group(required=True)
 	operations.add_argument('--run', action='store_true', help='Run a backup immediately.')
 	operations.add_argument('--install', action='store_true', help='Schedule this script to run repeatedly at a given time.')
-	operations.add_argument('--uninstall', metavar="UNINSTALL_FILTER", type=uninstall_level, help='Remove all scheduled runs of this script for a given SOURCEFILE and DESTINATIONFILE')
+	operations.add_argument('--uninstall', metavar="UNINSTALL_FILTER", type=identity_level, help='Remove all scheduled runs of this script for a given SOURCEFILE and DESTINATIONFILE')
+	operations.add_argument('--statusof', metavar="STATUS_FILTER", type=identity_level, help='Display all already-scheduled runs of this script for a given SOURCEFILE and DESTINATIONFILE')
 	ARGUMENT_PARSER.add_argument('--time', type=valid_atjob_timespec, help="Time in the future to schedule (or uninstall) backup jobs")
 	ARGUMENT_PARSER.add_argument('--keeprevisions', metavar='REVISIONS', type=positive_int, default=14, help='How many backups of the file to keep. Old ones will be rotated out.')
 	ARGUMENT_PARSER.add_argument('--sourcefile', type=readable_file, metavar='FILE_PATH', help='File to back up.', required=True)
@@ -125,22 +135,30 @@ def parse_args():
 	# Check if it was passed a timestamp
 
 	# Do some more complex argument validation: --time is required with --install,
-	# and also with --uninstall "jobs exactly like this one". Elsewhere it is
+	# and also with --uninstall/status "jobs exactly like this one". Elsewhere it is
 	# meaningless.
-	timelevelname = ID_LEVELS[uninstall_level("time")][0]
-	if args.uninstall:
-		if args.uninstall is uninstall_level("time"):
-			ARGUMENT_PARSER.error("--time is required with --uninstall '{}'".format(timelevelname))
-		else:
-			ARGUMENT_PARSER.error("--time is useless with --uninstall '{}'; it is only used with --uninstall '{}'".format(
-				ID_LEVELS[uninstall_level(args.uninstall)][0],
+	timelevelname = ID_LEVELS[identity_level("exact")][0]
+	if args.uninstall or args.statusof:
+		formattpl = (args.uninstall, "uninstall")
+		if args.statusof:
+			formattpl = (args.statusof, "statusof")
+		if formattpl[0] is identity_level("exact"):
+			if not args.time:
+				ARGUMENT_PARSER.error("--time is required with --{} '{}'".format(formattpl[1], timelevelname))
+		elif args.time:
+			print("warning: --time is useless with --{0} '{1}'; it is only used with --statusof '{2}' or --uninstall '{2}'".format(
+				formattpl[1],
+				ID_LEVELS[formattpl[0]][0],
 				timelevelname
 			))
-	elif args.install and not args.time:
-		ARGUMENT_PARSER.error("--time is required with --install")
+	elif args.install:
+		if not args.time:
+			ARGUMENT_PARSER.error("--time is required with --install")
 	elif args.time:
-		parser.error("--time can only be combined with --install or --uninstall '{}' actions".format(timelevelname))
+		ARGUMENT_PARSER.error("--time can only be combined with --install or --uninstall '{}' actions".format(timelevelname))
 
+	if args.debug:
+		print("debug: " + str(args))
 	return args
 
 # Using the below template so it could easily be put onto the filesystem and
@@ -199,13 +217,13 @@ $LOGROTATE_SOURCE_FILE {
 # the paths themselves. Absolute paths are used so that different schedulings of
 # this script, from different directories, using the same relative path strings
 # for source and destination, are not identified as the same.
-def get_identifiers(args, level=len(ID_LEVELS)):
+def get_identifier(args, level=len(ID_LEVELS)):
 	idbuilder = hashlib.md5(QUEUE.encode())
 	identifier = idbuilder.hexdigest()
 
 	if level > 1:
-		idbuilder.update(os.path.abspath(args.sourcefile).encode())
-		idbuilder.update(os.path.abspath(args.destinationdir).encode())
+		idbuilder.update(args.sourcefile)
+		idbuilder.update(args.destinationdir)
 		identifier += "_" + idbuilder.hexdigest()
 	if level > 2:
 		idbuilder.update(args.time["original"].encode())		
@@ -215,7 +233,7 @@ def get_identifiers(args, level=len(ID_LEVELS)):
 
 def main():
 	args = parse_args()
-
+	exitcode = 0
 	if args.install:
 		relayargs = [
 			__file__,
@@ -226,46 +244,59 @@ def main():
 			"--keeprevisions",
 			args.keeprevisions,
 			"--identifier",
-			get_identifiers(args)
+			get_identifier(args)
 		]
 		add_atjob(relayargs + ["--run"], args.time["original"])
 		print("Scheduled backup to run at '{}'".format(args.time["parsed"]))
 		add_atjob(relayargs + ["--install", args.time["original"]], args.time["original"])
 		print("Scheduled this job to re-schedule itself at '{}'".format(args.time["parsed"]))
 	elif args.uninstall:
-		jobs = get_atjobs_with_string(get_identifiers(args, args.uninstall))
+		jobs = get_atjobs_with_string(get_identifier(args, args.uninstall), debug=args.debug)
 		for job in jobs:
-			remove_atjob(job)
-			print("Removed job '{}'".format(job))
+			remove_atjob(job["id"])
+			print("Removed job ID {id} (scheduled for {schedule})".format(**job))
 		if not jobs:
+			exitcode = 1
 			print("No jobs to remove.\n")
-			print("Use '{} {}' to remove all backup jobs from queue '{}'".format(__file__, '--uninstall "all backup jobs"', QUEUE))
+			print("Use {} to remove all backup jobs from queue '{}'".format("--uninstall '{}'".format(ID_LEVELS[1][0]), QUEUE))
 			print("Use 'at -l -q {0} | cut -f1 | xargs at -r' to remove all jobs from queue '{0}'".format(QUEUE))
 			print("Use 'at -l | cut -f1 | xargs at -r' to remove all scheduled jobs of any kind from this system")
-
+	elif args.statusof:
+		identifier = get_identifier(args, args.statusof)
+		stripregex = re.compile(r"\s+(--identifier\s+{})\s+".format(re.escape(identifier)))
+		jobs = get_atjobs_with_string(identifier, debug=args.debug)
+		if jobs:
+			print("Found {} jobs (job IDs are random):\n".format(len(jobs)))
+			print("\n\n".join([
+				"Job ID {id} is scheduled for {schedule}\nJob command: ".format(**job) + re.sub(stripregex, " ", job["command"])
+				for job in jobs
+			]))
+		else:
+			exitcode = 1
+			print("No jobs found. Do --statusof '{}' to view all jobs in the queue".format(ID_LEVELS[1][0]))
 	else: # args.run
-		destdir = os.path.abspath(args.destinationdir)
-		statefile = os.path.join(destdir, "logrotate.state")
-		with tempfile.NamedTemporaryFile() as f:
+		# Handles automatic deletion of logrotate state file (our at-stored
+		# "state" is canonical; letting logrotate track state as well both
+		# creates unexpected messes, and may create unexpected issues), and
+		# the logrotate config file.
+		with tempfile.NamedTemporaryFile() as f, tempfile.NamedTemporaryFile() as statefile:
 			os.environ["LOGROTATE_SOURCE_FILE"] = os.path.abspath(args.sourcefile)
 			os.environ["LOGROTATE_KEEP_REVISIONS"] = args.keeprevisions
-			os.environ["LOGROTATE_DESTINATION_FOLDER"] = destdir
+			os.environ["LOGROTATE_DESTINATION_FOLDER"] = args.destinationdir
 			logrotateconf = os.path.expandvars(logrotate_template())
 			if args.debug:
-				print("Logrotate config about to be installed to '{}':".format(f.name))
-				print(logrotateconf)
+				print("debug: logrotate config about to be installed to '{}':".format(f.name))
+				print("debug: logrotate config contents:\n" + logrotateconf)
 			f.write(logrotateconf.encode())
 			f.flush()
-
-			with tempfile.NamedTemporaryFile() as statefile:
-				logrotateflags = "-v"
-				if args.debug:
-					logrotateflags += "d"
-				subprocess.check_call([
-					"logrotate",
-					logrotateflags,
-					"--state",
-					statefile.name,
-					f.name
-				])
+			logrotateflags = "-v"
+			if args.debug:
+				logrotateflags += "d"
+			subprocess.check_call([
+				"logrotate",
+				logrotateflags,
+				"--state",
+				statefile.name,
+				f.name
+			])
 main()
