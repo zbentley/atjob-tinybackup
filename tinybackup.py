@@ -29,9 +29,8 @@ def init_logger():
 				return self.info_fmt.format(record)
 			else:
 				return self.other_fmt.format(record)
-	ch = logging.StreamHandler(sys.stderr)
+	ch = logging.StreamHandler(sys.stdout)
 	ch.setFormatter(NonInfoStampedFormatter())
-	ch.setLevel(logging.DEBUG)
 	logger = logging.getLogger(__file__)
 	logger.addHandler(ch)
 	logger.setLevel(logging.INFO)
@@ -260,8 +259,7 @@ def get_identifier(args, level=len(ID_LEVELS)):
 
 	return identifier
 
-if __name__ == '__main__':
-	logging.info("WHY")
+def main():
 	args = parse_args()
 	exitcode = 0
 	if args.install:
@@ -328,3 +326,7 @@ if __name__ == '__main__':
 				statefile.name,
 				f.name
 			])
+
+
+if __name__ == '__main__':
+	main()
