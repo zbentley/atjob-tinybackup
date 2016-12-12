@@ -8,6 +8,8 @@ import hashlib
 import tempfile
 import logging
 import sys
+import functools
+import inspect
 # http://stackoverflow.com/questions/967443
 try:  # py3
     from shlex import quote
@@ -45,38 +47,37 @@ def logger(_logger=None):
 		logger.value = loggerinst
 	return logger.value
 
-# Global vars
-
-ARGUMENT_PARSER = argparse.ArgumentParser(description='Schedule a repeated backup of a single file.')
-
 def i(msg):
 	return logger().info(msg)
 
-def positive_int(value):
+def default_errfunc(message):
+	raise ValueError(message)
+
+def positive_int(value, errfunc=default_errfunc):
 	ivalue = 0
 	try:
 		ivalue = int(value)
 	except ValueError:
 		pass
 	if ivalue <= 0:
-		ARGUMENT_PARSER.error("'{}' is an invalid value; must be >= 0".format(value))
+		errfunc("'{}' is an invalid value; must be >= 0".format(value))
 	return str(ivalue)
 
 # We won't use argparse's FileTypes, since they allow STDIN to be used, which
 # messes up our ability to do fingerprinting.
-def readable_file(value):
+def readable_file(value, errfunc=default_errfunc):
 	if os.path.isfile(value) and os.access(value, os.R_OK):
 		return os.path.realpath(value)
 	else:
-		ARGUMENT_PARSER.error("'{}' is not a readable file".format(value))
+		errfunc("'{}' is not a readable file".format(value))
 
-def writable_dir(value):
+def writable_dir(value, errfunc=default_errfunc):
 	if os.path.isdir(value) and os.access(value, os.W_OK):
 		return os.path.realpath(value)
 	else:
-		ARGUMENT_PARSER.error("'{}' is not a writable directory".format(value))
+		errfunc("'{}' is not a writable directory".format(value))
 
-def identity_level(value):
+def identity_level(value, errfunc=default_errfunc):
 	value = value.lower()
 	for idx, level in enumerate(ID_LEVELS):
 		if value in level:
@@ -84,23 +85,23 @@ def identity_level(value):
 	uninstinfo = "Invalid value '{}' for --uninstall. Valid values and their roles are:\n".format(value)
 	for level in ID_LEVELS[1:]:
 		uninstinfo += "Uninstall {}: {}\n".format(level[0], ', '.join('"{0}"'.format(w) for w in level))
-	ARGUMENT_PARSER.error(uninstinfo.rstrip())
 
+	errfunc(uninstinfo.rstrip())
 
 # Validates a timespec with "at". This could technically be done by just calling
 # "at" with no STDIN, waiting for a bit, and seeing if it exited with an error
 # or just hung waiting for input, but that requires thinking about timeouts, and
 # loses us the ability to get the at-formatted timestamp back for examination.
-def valid_atjob_timespec(timespec):
+def valid_atjob_timespec(timespec, errfunc=default_errfunc):
 	try:
-		jobnum, timestring = add_atjob(["/bin/true"], timespec)
+		jobnum, timestring = add_atjob("/bin/true", timespec)
 	except subprocess.CalledProcessError as e:
-		ARGUMENT_PARSER.error(e.output.strip())
+		errfunc(e.output.strip())
 	else:
 		try:
 			remove_atjob(jobnum)
 		except subprocess.CalledProcessError as e:
-			ARGUMENT_PARSER.error(e.output.strip())
+			errfunc(e.output.strip())
 	return {
 		"parsed": timestring,
 		"original": timespec
@@ -117,31 +118,30 @@ def get_atjobs_with_string(string):
 		if line:
 			line = line.split()
 			job = line.pop(0)
-			for statement in reversed(subprocess.check_output(["at", "-c", job]).decode('ascii').split("\n")):
-				if statement.strip():
-					if string in statement:
-						job = {
-							"id": job,
-							"schedule": " ".join(line).strip(),
-							"command": statement,
-						}
-						logger().debug("found job: " + str(job))
-						jobs.append(job)
-					break
+			jobtext = subprocess.check_output(["at", "-c", job]).decode('ascii')
+			if string in jobtext:
+				job = {
+					"id": job,
+					"schedule": " ".join(line).strip(),
+					"command": jobtext,
+				}
+				logger().debug("found job: " + str(job))
+				jobs.append(job)
+			break
 	return jobs
 
 def add_atjob(cmd, timespec, debug=False):
-	cmd = " ".join(quote(x) for x in cmd)
-	if debug:
-		cmd += " >> debug.txt 2>&1"
+	oldenv = os.environ.pop("ATJOB_TINYBACKUP_SCRIPT", None)
 	r, w = os.pipe()
 	os.write(w, cmd.encode())
 	os.close(w)
-	
+
 	output = subprocess.check_output(["at", "-q", QUEUE, timespec], stdin=r, stderr=subprocess.STDOUT).decode('ascii')
 	matches = re.search("job (\d+) at(.+)", str(output))
 	if not (matches and matches.group(1) and matches.group(2)):
-		raise subprocess.CalledProcessError("Couldn't get job info after successful installation of '{}'".format(cmd))
+		raise subprocess.CalledProcessError(1, "Couldn't get job info after successful installation of '{}'".format(cmd))
+	if oldenv:
+		os.environ["ATJOB_TINYBACKUP_SCRIPT"] = oldenv
 	return (int(matches.group(1).strip()), matches.group(2).strip())
 
 def verify_exe(cmd):
@@ -149,29 +149,81 @@ def verify_exe(cmd):
 		# We use -l since --help is noncompliant and returns 1
 		subprocess.check_call(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	except:
-		i("Could not invoke '{}'; this script cannot function".format(cmd[0]))
+		logger().error("Could not invoke '{}'; this script cannot function".format(cmd[0]))
 		raise
 
 def parse_args():
-	# We use -l since --help is noncompliant and returns 1
+	# We use -l since --help is POSIX-noncompliant and returns 1
 	verify_exe(["at", "-l"])
 	verify_exe(["logrotate", "--help"])
-	operations = ARGUMENT_PARSER.add_mutually_exclusive_group(required=True)
-	operations.add_argument('--install', '-i', action='store_true', help='Schedule this script to run repeatedly at a given time.')
-	operations.add_argument('--uninstall', '-u', metavar="JOB_FILTER", type=identity_level, help='Remove all scheduled runs of this script for a given SOURCEFILE and DESTINATIONDIRECTORY')
-	operations.add_argument('--statusof', '-s', metavar="JOB_FILTER", type=identity_level, help='Display all already-scheduled runs of this script for a given SOURCEFILE and DESTINATIONDIRECTORY')
-	ARGUMENT_PARSER.add_argument('--run', '-r', action='store_true', help='Run a backup immediately, in addition to any other actions taken.')
-	ARGUMENT_PARSER.add_argument('--time', '-t', type=valid_atjob_timespec, help="Time in the future to schedule (or uninstall) backup jobs")
-	ARGUMENT_PARSER.add_argument('--keeprevisions', '-k', metavar='REVISIONS', type=positive_int, default=14, help='How many backups of the file to keep. Old ones will be rotated out.')
-	ARGUMENT_PARSER.add_argument('--sourcefile', '-f', type=readable_file, metavar='SOURCEFILE', help='File to back up.', required=True)
-	ARGUMENT_PARSER.add_argument('--destinationdirectory', '--destdir', '-d', type=writable_dir, metavar='DESTINATIONDIRECTORY', help='Directory in which to store backed up files.', required=True)
-	ARGUMENT_PARSER.add_argument('--debug', action='store_true',  help='Enable debug output.')
-	ARGUMENT_PARSER.add_argument('--noop', action='store_true',  help='Do scheduling and job installation as normal, but do not actually create any backups; write diagnostic output instead.')
+	# Global vars
 
-	ARGUMENT_PARSER.add_argument('--identifier', help=argparse.SUPPRESS)
+	parser = argparse.ArgumentParser(description='Schedule a repeated backup of a single file.')
 
-	args = ARGUMENT_PARSER.parse_args()
-	# Check if it was passed a timestamp
+	operations = parser.add_mutually_exclusive_group(required=True)
+	operations.add_argument(
+		'--install','-i',
+		action='store_true',
+		help='Schedule this script to run repeatedly at a given time.'
+	)
+	operations.add_argument(
+		'--uninstall', '-u',
+		metavar="JOB_FILTER",
+		type=functools.partial(identity_level, errfunc=parser.error),
+		help='Remove all scheduled runs of this script for a given SOURCEFILE and DESTINATIONDIRECTORY'
+	)
+	operations.add_argument(
+		'--statusof', '-s',
+		metavar="JOB_FILTER",
+		type=functools.partial(identity_level, errfunc=parser.error),
+		help='Display all already-scheduled runs of this script for a given SOURCEFILE and DESTINATIONDIRECTORY'
+	)
+
+	parser.add_argument(
+		'--run', '-r',
+		action='store_true',
+		help='Run a backup immediately, in addition to any other actions taken.'
+	)
+	parser.add_argument(
+		'--time', '-t',
+		type=functools.partial(valid_atjob_timespec, errfunc=parser.error),
+		help="Time in the future to schedule (or uninstall) backup jobs"
+	)
+	parser.add_argument(
+		'--keeprevisions', '-k',
+		metavar='REVISIONS',
+		type=positive_int,
+		default=14,
+		help='How many backups of the file to keep. Old ones will be rotated out.'
+	)
+	parser.add_argument(
+		'--sourcefile', '-f',
+		type=functools.partial(readable_file, errfunc=parser.error),
+		metavar='SOURCEFILE',
+		help='File to back up.',
+		required=True
+	)
+	parser.add_argument(
+		'--destinationdirectory', '--destdir', '-d',
+		type=functools.partial(writable_dir, errfunc=parser.error),
+		metavar='DESTINATIONDIRECTORY',
+		help='Directory in which to store backed up files.',
+		required=True
+	)
+	parser.add_argument(
+		'--debug',
+		action='store_true',
+		help='Enable debug output.'
+	)
+	parser.add_argument(
+		'--noop',
+		action='store_true',
+		help='Do scheduling and job installation as normal, but do not actually create any backups; write diagnostic output instead.'
+	)
+
+	parser.add_argument('--identifier', help=argparse.SUPPRESS)
+
+	args = parser.parse_args()
 
 	# Do some more complex argument validation: --time is required with --install,
 	# and also with --uninstall/status "jobs exactly like this one". Elsewhere it is
@@ -183,7 +235,7 @@ def parse_args():
 			formattpl = (args.statusof, "statusof")
 		if formattpl[0] is identity_level("exact"):
 			if not args.time:
-				ARGUMENT_PARSER.error("--time is required with --{} '{}'".format(formattpl[1], timelevelname))
+				parser.error("--time is required with --{} '{}'".format(formattpl[1], timelevelname))
 		elif args.time:
 			logger().warn("--time is useless with --{0} '{1}'; it is only used with --statusof '{2}' or --uninstall '{2}'".format(
 				formattpl[1],
@@ -192,15 +244,15 @@ def parse_args():
 			))
 	elif args.install:
 		if not args.time:
-			ARGUMENT_PARSER.error("--time is required with --install")
+			parser.error("--time is required with --install")
 	elif args.time:
-		ARGUMENT_PARSER.error("--time can only be combined with --install or --uninstall '{}' actions".format(timelevelname))
+		parser.error("--time can only be combined with --install or --uninstall '{}' actions".format(timelevelname))
 
 	if args.run:
 		if args.uninstall:
-			ARGUMENT_PARSER.error("--run cannot be combined with --uninstall; it can be used on its own or combined with --install.")
+			parser.error("--run cannot be combined with --uninstall; it can be used on its own or combined with --install.")
 		elif args.statusof:
-			ARGUMENT_PARSER.error("--run cannot be combined with --statusof; it can be used on its own or combined with --install.")
+			parser.error("--run cannot be combined with --statusof; it can be used on its own or combined with --install.")
 
 	if args.debug:
 		logger().setLevel(logging.DEBUG)
@@ -214,7 +266,7 @@ def logrotate_template():
 # Environment variables will be interpolated in the below code. Their names and
 # values (if they have already been interpolated) are:
 # LOGROTATE_SOURCE_FILE:
-#	Value (if interpolated): $LOGROTATE_SOURCE_FILE 
+#	Value (if interpolated): $LOGROTATE_SOURCE_FILE
 #	Usage: the path to the file to be backed up.
 # LOGROTATE_KEEP_REVISIONS:
 #	Value (if interpolated): $LOGROTATE_KEEP_REVISIONS
@@ -239,7 +291,7 @@ $LOGROTATE_SOURCE_FILE {
 
 	# Store backups and stuff in this folder:
 	olddir $LOGROTATE_DESTINATION_FOLDER
-	
+
 	# keep this many old backups
 	rotate $LOGROTATE_KEEP_REVISIONS
 
@@ -272,7 +324,7 @@ def get_identifier(args, level=len(ID_LEVELS)):
 		idbuilder.update(args.destinationdirectory)
 		identifier += "_" + idbuilder.hexdigest()
 	if level > 2:
-		idbuilder.update(args.time["original"].encode())		
+		idbuilder.update(args.time["original"].encode())
 		identifier += "_" + idbuilder.hexdigest()
 
 	return identifier
@@ -281,8 +333,12 @@ def main():
 	args = parse_args()
 	exitcode = 0
 	if args.install:
-		relayargs = [
-			os.path.realpath(__file__),
+		# Thanks to 'at's shell magic, this will propagate between invocations
+		# once set.
+
+		relayargs = [ quote(x) for x in
+			sys.executable,
+			"-",
 			"--sourcefile",
 			args.sourcefile,
 			"--destdir",
@@ -297,8 +353,45 @@ def main():
 			args.time["original"]
 		]
 		if args.debug:
-			relayargs.append("--debug")
-		add_atjob(relayargs, args.time["original"], debug=args.debug)
+			relayargs.extend(["--debug", ">>", "debug.txt", "2>&1"])
+
+		# Once a backup job is installed, we want it to run even if the original
+		# .py script is [re]moved. In order to accomplish *that*, we need to
+		# get the body of the script stored somewhere. Rather than picking another
+		# location (e.g. a tempfile) that might get nuked between jobs, we can
+		# store it in "at"'s job queue itself, since "at" is nice enough to store
+		# a shell script (and propagate environment) for each job, we can take
+		# advantage of that for storage. However, that's trickier than it sounds...
+		# 
+		# This is pretty heinous, but it's the only thing I've found that works:
+		# 1. Store the contents of the script into an environment variable if it's
+		# not already set. Since we're re-running the script via STDIN, we can't
+		# just call inspect's functions each time we run it; since STDIN is a
+		# stream, there will be nothing *to* expect. The variable is stored in a
+		# here-doc with quotes, to prevent the few '$' signs inside it from being
+		# messed with by the shell.
+		# 2. When storing thecontents, don't let "at" propagate the variable
+		# across multiple runs of the script; instead, export it ourselves and
+		# make sure it doesn't get picked up by "at" (in add_atjob()). This is
+		# because at (or sh)'s shell escaping for the body of the script if it's
+		# just stored in an environment variable is insufficient/broken, and
+		# causes a syntax error. The use of "cat" here is *not* useless; since
+		# the shell read() *requires* a delimiter, the variable can't be stored
+		# by read() alone without getting altered (parts of the backslashes in
+		# some of the regexes get eaten). There might be a way around this using
+		# read() alone, but "cat" doesn't have the issue at all.
+		# 3. Supply the script contents back to Python via *another* here-doc.
+		# This is because the raw-heredoc interpolation doesn't remove quotes
+		# etc., whereas doing "echo $ATJOB_TINYBACKUP_SCRIPT | python..." does.
+		if not "ATJOB_TINYBACKUP_SCRIPT" in os.environ:
+			os.environ["ATJOB_TINYBACKUP_SCRIPT"] = inspect.getsource(sys.modules[__name__])
+		cmd = "export ATJOB_TINYBACKUP_SCRIPT=$(cat <<'SCRIPT'\n{}\nSCRIPT)\n{} <<COMMAND\n$ATJOB_TINYBACKUP_SCRIPT\nCOMMAND".format(
+			os.environ["ATJOB_TINYBACKUP_SCRIPT"],
+			" ".join(relayargs),
+		)
+
+		logger().debug("Scheduling command: " + cmd)
+		add_atjob(cmd, args.time["original"], debug=args.debug)
 		i("Scheduled backup to run and re-schedule itself at '{}'".format(args.time["parsed"]))
 	elif args.uninstall:
 		jobs = get_atjobs_with_string(get_identifier(args, args.uninstall))
@@ -324,7 +417,7 @@ def main():
 		else:
 			exitcode = 1
 			i("No jobs found. Do --statusof '{}' to view all jobs in the queue".format(ID_LEVELS[identity_level("all")][0]))
-	
+
 	if args.run:
 		# Handles automatic deletion of logrotate state file (our at-stored
 		# "state" is canonical; letting logrotate track state as well both
@@ -353,3 +446,5 @@ def main():
 
 if __name__ == '__main__':
 	main()
+
+
