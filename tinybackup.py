@@ -127,7 +127,6 @@ def get_atjobs_with_string(string):
 				}
 				logger().debug("found job: " + str(job))
 				jobs.append(job)
-			break
 	return jobs
 
 def add_atjob(cmd, timespec, debug=False):
@@ -160,7 +159,7 @@ def parse_args():
 
 	parser = argparse.ArgumentParser(description='Schedule a repeated backup of a single file.')
 
-	operations = parser.add_mutually_exclusive_group(required=True)
+	operations = parser.add_mutually_exclusive_group()
 	operations.add_argument(
 		'--install','-i',
 		action='store_true',
@@ -193,7 +192,7 @@ def parse_args():
 		'--keeprevisions', '-k',
 		metavar='REVISIONS',
 		type=positive_int,
-		default=14,
+		default="14",
 		help='How many backups of the file to keep. Old ones will be rotated out.'
 	)
 	parser.add_argument(
@@ -201,14 +200,12 @@ def parse_args():
 		type=functools.partial(readable_file, errfunc=parser.error),
 		metavar='SOURCEFILE',
 		help='File to back up.',
-		required=True
 	)
 	parser.add_argument(
 		'--destinationdirectory', '--destdir', '-d',
 		type=functools.partial(writable_dir, errfunc=parser.error),
 		metavar='DESTINATIONDIRECTORY',
 		help='Directory in which to store backed up files.',
-		required=True
 	)
 	parser.add_argument(
 		'--debug',
@@ -228,12 +225,12 @@ def parse_args():
 	# Do some more complex argument validation: --time is required with --install,
 	# and also with --uninstall/status "jobs exactly like this one". Elsewhere it is
 	# meaningless.
-	timelevelname = ID_LEVELS[identity_level("exact")][0]
+	timelevelname = ID_LEVELS[identity_level("this")][0]
 	if args.uninstall or args.statusof:
 		formattpl = (args.uninstall, "uninstall")
 		if args.statusof:
 			formattpl = (args.statusof, "statusof")
-		if formattpl[0] is identity_level("exact"):
+		if formattpl[0] is identity_level("this"):
 			if not args.time:
 				parser.error("--time is required with --{} '{}'".format(formattpl[1], timelevelname))
 		elif args.time:
@@ -248,11 +245,22 @@ def parse_args():
 	elif args.time:
 		parser.error("--time can only be combined with --install or --uninstall '{}' actions".format(timelevelname))
 
+	# Sourcefile and destdir are required unless --statusof|uninstall 'all':
+	if not ( args.sourcefile and args.destinationdirectory ):
+		formattpl = (args.uninstall, "uninstall")
+		if args.statusof:
+			formattpl = (args.statusof, "statusof")
+		if formattpl[0] is not identity_level('all'):
+			parser.error("--sourcefile and --destinationdirectory are required with --{} '{}'".format(formattpl[1], formattpl[0]))
+
 	if args.run:
 		if args.uninstall:
 			parser.error("--run cannot be combined with --uninstall; it can be used on its own or combined with --install.")
 		elif args.statusof:
 			parser.error("--run cannot be combined with --statusof; it can be used on its own or combined with --install.")
+
+	if not ( args.run or args.install or args.uninstall or args.statusof ):
+		parser.error("At least one of --[run,install,uninstall,statusof] is required")
 
 	if args.debug:
 		logger().setLevel(logging.DEBUG)
@@ -320,8 +328,8 @@ def get_identifier(args, level=len(ID_LEVELS)):
 	identifier = idbuilder.hexdigest()
 
 	if level > 1:
-		idbuilder.update(args.sourcefile)
-		idbuilder.update(args.destinationdirectory)
+		idbuilder.update(args.sourcefile.encode())
+		idbuilder.update(args.destinationdirectory.encode())
 		identifier += "_" + idbuilder.hexdigest()
 	if level > 2:
 		idbuilder.update(args.time["original"].encode())
@@ -336,7 +344,7 @@ def main():
 		# Thanks to 'at's shell magic, this will propagate between invocations
 		# once set.
 
-		relayargs = [ quote(x) for x in
+		relayargs = [ quote(x) for x in (
 			sys.executable,
 			"-",
 			"--sourcefile",
@@ -351,7 +359,7 @@ def main():
 			"--install",
 			"--time",
 			args.time["original"]
-		]
+		)]
 		if args.debug:
 			relayargs.extend(["--debug", ">>", "debug.txt", "2>&1"])
 
