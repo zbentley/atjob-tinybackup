@@ -130,9 +130,10 @@ def get_atjobs_with_string(string):
 					break
 	return jobs
 
-def add_atjob(cmd, timespec):
+def add_atjob(cmd, timespec, debug=False):
 	cmd = " ".join(quote(x) for x in cmd)
-	# cmd += " >> debug.txt 2>&1"
+	if debug:
+		cmd += " >> debug.txt 2>&1"
 	r, w = os.pipe()
 	os.write(w, cmd.encode())
 	os.close(w)
@@ -156,15 +157,17 @@ def parse_args():
 	verify_exe(["at", "-l"])
 	verify_exe(["logrotate", "--help"])
 	operations = ARGUMENT_PARSER.add_mutually_exclusive_group(required=True)
-	operations.add_argument('-r', '--run', action='store_true', help='Run a backup immediately.')
-	operations.add_argument('-i', '--install', action='store_true', help='Schedule this script to run repeatedly at a given time.')
-	operations.add_argument('-u', '--uninstall', metavar="UNINSTALL_FILTER", type=identity_level, help='Remove all scheduled runs of this script for a given SOURCEFILE and DESTINATIONFILE')
-	operations.add_argument('-a', '--statusof', metavar="STATUS_FILTER", type=identity_level, help='Display all already-scheduled runs of this script for a given SOURCEFILE and DESTINATIONFILE')
-	ARGUMENT_PARSER.add_argument('-t', '--time', type=valid_atjob_timespec, help="Time in the future to schedule (or uninstall) backup jobs")
-	ARGUMENT_PARSER.add_argument('-k', '--keeprevisions', metavar='REVISIONS', type=positive_int, default=14, help='How many backups of the file to keep. Old ones will be rotated out.')
-	ARGUMENT_PARSER.add_argument('-s', '--sourcefile', type=readable_file, metavar='FILE_PATH', help='File to back up.', required=True)
-	ARGUMENT_PARSER.add_argument('-d', '--destinationdir', '--destdir', type=writable_dir, metavar='DIRECTORY_PATH', help='Directory in which to store backed up files.', required=True)
+	operations.add_argument('--install', '-i', action='store_true', help='Schedule this script to run repeatedly at a given time.')
+	operations.add_argument('--uninstall', '-u', metavar="JOB_FILTER", type=identity_level, help='Remove all scheduled runs of this script for a given SOURCEFILE and DESTINATIONDIRECTORY')
+	operations.add_argument('--statusof', '-s', metavar="JOB_FILTER", type=identity_level, help='Display all already-scheduled runs of this script for a given SOURCEFILE and DESTINATIONDIRECTORY')
+	ARGUMENT_PARSER.add_argument('--run', '-r', action='store_true', help='Run a backup immediately, in addition to any other actions taken.')
+	ARGUMENT_PARSER.add_argument('--time', '-t', type=valid_atjob_timespec, help="Time in the future to schedule (or uninstall) backup jobs")
+	ARGUMENT_PARSER.add_argument('--keeprevisions', '-k', metavar='REVISIONS', type=positive_int, default=14, help='How many backups of the file to keep. Old ones will be rotated out.')
+	ARGUMENT_PARSER.add_argument('--sourcefile', '-f', type=readable_file, metavar='SOURCEFILE', help='File to back up.', required=True)
+	ARGUMENT_PARSER.add_argument('--destinationdirectory', '--destdir', '-d', type=writable_dir, metavar='DESTINATIONDIRECTORY', help='Directory in which to store backed up files.', required=True)
 	ARGUMENT_PARSER.add_argument('--debug', action='store_true',  help='Enable debug output.')
+	ARGUMENT_PARSER.add_argument('--noop', action='store_true',  help='Do scheduling and job installation as normal, but do not actually create any backups; write diagnostic output instead.')
+
 	ARGUMENT_PARSER.add_argument('--identifier', help=argparse.SUPPRESS)
 
 	args = ARGUMENT_PARSER.parse_args()
@@ -192,6 +195,12 @@ def parse_args():
 			ARGUMENT_PARSER.error("--time is required with --install")
 	elif args.time:
 		ARGUMENT_PARSER.error("--time can only be combined with --install or --uninstall '{}' actions".format(timelevelname))
+
+	if args.run:
+		if args.uninstall:
+			ARGUMENT_PARSER.error("--run cannot be combined with --uninstall; it can be used on its own or combined with --install.")
+		elif args.statusof:
+			ARGUMENT_PARSER.error("--run cannot be combined with --statusof; it can be used on its own or combined with --install.")
 
 	if args.debug:
 		logger().setLevel(logging.DEBUG)
@@ -260,7 +269,7 @@ def get_identifier(args, level=len(ID_LEVELS)):
 
 	if level > 1:
 		idbuilder.update(args.sourcefile)
-		idbuilder.update(args.destinationdir)
+		idbuilder.update(args.destinationdirectory)
 		identifier += "_" + idbuilder.hexdigest()
 	if level > 2:
 		idbuilder.update(args.time["original"].encode())		
@@ -277,16 +286,20 @@ def main():
 			"--sourcefile",
 			args.sourcefile,
 			"--destdir",
-			args.destinationdir,
+			args.destinationdirectory,
 			"--keeprevisions",
 			args.keeprevisions,
 			"--identifier",
-			get_identifier(args)
+			get_identifier(args),
+			"--run",
+			"--install",
+			"--time",
+			args.time["original"]
 		]
-		add_atjob(relayargs + ["--run"], args.time["original"])
-		i("Scheduled backup to run at '{}'".format(args.time["parsed"]))
-		add_atjob(relayargs + ["--install", "--time", args.time["original"]], args.time["original"])
-		i("Scheduled this job to re-schedule itself at '{}'".format(args.time["parsed"]))
+		if args.debug:
+			relayargs.append("--debug")
+		add_atjob(relayargs, args.time["original"], debug=args.debug)
+		i("Scheduled backup to run and re-schedule itself at '{}'".format(args.time["parsed"]))
 	elif args.uninstall:
 		jobs = get_atjobs_with_string(get_identifier(args, args.uninstall))
 		for job in jobs:
@@ -311,7 +324,8 @@ def main():
 		else:
 			exitcode = 1
 			i("No jobs found. Do --statusof '{}' to view all jobs in the queue".format(ID_LEVELS[identity_level("all")][0]))
-	else: # args.run
+	
+	if args.run:
 		# Handles automatic deletion of logrotate state file (our at-stored
 		# "state" is canonical; letting logrotate track state as well both
 		# creates unexpected messes, and may create unexpected issues), and
@@ -319,14 +333,14 @@ def main():
 		with tempfile.NamedTemporaryFile() as f, tempfile.NamedTemporaryFile() as statefile:
 			os.environ["LOGROTATE_SOURCE_FILE"] = os.path.realpath(args.sourcefile)
 			os.environ["LOGROTATE_KEEP_REVISIONS"] = args.keeprevisions
-			os.environ["LOGROTATE_DESTINATION_FOLDER"] = args.destinationdir
+			os.environ["LOGROTATE_DESTINATION_FOLDER"] = os.path.realpath(args.destinationdirectory)
 			logrotateconf = os.path.expandvars(logrotate_template())
 			logger().debug("logrotate config about to be installed to '{}':".format(f.name))
 			logger().debug("logrotate config contents:\n" + logrotateconf)
 			f.write(logrotateconf.encode())
 			f.flush()
 			logrotateflags = "-v"
-			if args.debug:
+			if args.noop:
 				logrotateflags += "d"
 			subprocess.check_call([
 				"logrotate",
@@ -334,7 +348,7 @@ def main():
 				"--state",
 				statefile.name,
 				f.name
-			], stdout=sys.stdout, stderr=sys.stderr)
+			])
 
 
 if __name__ == '__main__':
