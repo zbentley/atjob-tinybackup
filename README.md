@@ -1,10 +1,10 @@
 # atjob-tinybackup
 
-A tiny single-file backup program that schedules itself
+A tiny single-file-backup program that schedules itself.
 
 This program is a *very* minimal backup utility. It supports:
 
-- Backing up one file, per invocation, to one folder. To back up multiple files, simply invoke this script multiple times.
+- Backing up one file per run, to one folder. To back up multiple files, invoke this script multiple times.
 - Scheduling itself to run in the future or on an interval.
 - Running on Linux, BSD, and OSX.
 - Compressing backed up files.
@@ -12,7 +12,8 @@ This program is a *very* minimal backup utility. It supports:
 
 ### Goals
 
-- Easy to use for anyone who can open a terminal.
+- Be easy to use for anyone who can open a terminal.
+- Be easy to install: a single script file is all that should be needed.
 - Remain as simple as possible. Single files are backed up to single locations.
 - Dependencies should be either omnipresent (Python), or very easy to install.
 - Should not disturb, lock, or otherwise modify data being backed up.
@@ -26,7 +27,7 @@ This program is a *very* minimal backup utility. It supports:
 # Installation
 
 This program has the following runtime requirements:
-- A running `atd` process. See [`at(1)`](https://linux.die.net/man/1/at) for more info.
+- A running `atd` process or equivalent invoker of `atrun`. See [`at(1)`](https://linux.die.net/man/1/at) for more info.
 - Python (2 or 3; I have tested with 2.6, 2.7, 3.1, and 3.5).
 - [`logrotate`](https://linux.die.net/man/8/logrotate).
 
@@ -54,6 +55,8 @@ For detailed commandline usage and help information, do `tinybackup.py --help`. 
 
 ### Time Specifications
 
+Time specifications relative to the time the user runs `tinybackup.py` are also available. For example, `--time +1hour` will run the backup job approximately one hour from when the command is entered, and again one hour after that, and so on. Running multiple backup jobs 
+
 ### Absolute and Relative Paths
 
 ### Job Identification Levels
@@ -64,15 +67,19 @@ For detailed commandline usage and help information, do `tinybackup.py --help`. 
 
 - On some systems (Solaris and Linux that I know of; BSDs may have something similar), the `at.allow` and `at.deny` files can be used to permit or deny users ability to use the `at` job scheduler. If a user wishing to use `atjob-tinybackup` is not permitted to use the scheduler via those two files, they can only use this script in `--run` mode; no other modes will work in a useful way.
 - If two jobs scheduled by `--install` happen to occur at the same time but were not scheduled with the same value for the `--time` parameter (e.g. if one is scheduled every minute with `--time '+1 minute'` and one is scheduled on the hour at 2:00AM with `--time '2:00'`), the two jobs will run simultaneously. Similarly, `--uninstall`ing one job will not uninstall the other. This applies _even if two jobs are scheduled with equivalent schedules that are only **textually** different_, for example `--time +2day` and `--time '+ 2 days'`.
-- The opposite of that scenario is also true. If two jobs are scheduled with the same relative time string (e.g. `--time 'now + 1 day'`), they will be removed by any `--uninstall "jobs exactly like this one"` command, _regardless of when the user ran the commands to schedule both jobs_. For example, if a user scheduled one job with `--time +1day` at noon, and scheduled another, identical job at midnight, `--uninstall --time +1day` would destroy both jobs. 
-- Behavior when a system is shut down, asleep, has a stopped `at` daemon or equivalent, or is otherwise not running jobs, is currently undefined. Behavior in these cases is left up to `at`; check your system's implementation information for more info via `man at`.
+- If two jobs are scheduled with the same source and destination, and same relative time string (e.g. `--time 'now + 1 day'`), they will be removed by any `--uninstall "jobs exactly like this one"` command, _regardless of when the user ran the commands to schedule both jobs_. For example, if a user scheduled one job with `--time +1day` at noon, and scheduled another, identical job at midnight, `--uninstall --time +1day` would destroy both jobs. This can be worked around by using absolute, rather than relative, time strings; in this example, one job would be scheduled with `--time 00:00` and another with `--time 12:00`. 
+- Behavior when a system is shut down, asleep, has a stopped `at` daemon or equivalent, or is otherwise not running jobs, is currently undefined. Jobs may run after the system starts back up, or they may not. Behavior in these cases is left up to `at`; check your system's implementation information for more info via `man at`.
 
 # FAQ
 
 - Something isn't working; my backups won't run when scheduled, and I don't know why. What can I do to figure out what's wrong?
 - I don't have this script installed any more, but backup jobs are still running? How can I turn them off?
 - What if I just want to run one backup at some point in the future, but don't want them to keep reoccurring after that until I uninstall them?
+- Can I use `atjob-tinybackup` inside a larger Pyhton program?
+A: Not directly. You'll have to shell out and run it.
 
 # Bugs/Contributing
 
-File an issue on [the GitHub repository for this project](https://github.com/zbentley/atjob-tinybackup). When filing an issue, please run the `tinybackup.py` script with the parameters that are causing the bug, and additionally the `--debug` flag. Debug output will be written to `debug.txt` in the directory where you invoked `tinybackup.py`. Please also include as many details about your host system and the files you are working with as possible.
+File an issue on [the GitHub repository for this project](https://github.com/zbentley/atjob-tinybackup).
+
+When filing an issue, please run the `tinybackup.py` script with the parameters that are causing the bug, and additionally the `--debug` flag. Debug output will be written to `debug.txt` in the directory where you invoked `tinybackup.py`. Please also include as many details about your host system and the files you are working with as possible.
