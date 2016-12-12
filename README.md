@@ -39,7 +39,83 @@ This program has the following runtime requirements:
 	- If that command does not work, open a terminal and type `man atrun` for activation instructions specific to your distribution of OSX.
 - Put this script in a stable location. If you move or delete the `tinybackup.py` file in between scheduled backups, all future backups will fail. You can have multiple copies of the script on your system. Many users find it convenient to place a copy of the `tinybackup.py` script in the same folder as the files which they are using it to back up.
 
+# Linux:
+
+Coming soon.
+
+# BSD:
+
+Coming soon (tested working on FreeBSD; I just have to find time to document the install steps).
+
+# Examples
+
+
+Back up `myfile.txt` in the current user's home directory (`/Users/username` on Mac OSX) into the `mydir` directory in the current user's home directory. Run one backup immediately, and another one at 2:00am every day in the future:
+
+```
+python tinybackup.py --sourcefile ~myfile.txt --destinationdirectory ~mydir/ --install --run --time '2:00am'
+```
+
+
+Remove (unschedule all future occurrences of) the backup scheduled in the example above:
+```
+python tinybackup.py --sourcefile ~myfile.txt --destinationdirectory ~mydir/ --uninstall --time '2:00am'
+```
+
+Run a single backup (do not schedule any future backups) of the file `/Users/maggie/Dropbox/somefile.pdf` to the directory `/Users/maggie/backupfolder/`:
+
+```
+python tinybackup.py --sourcefile /Users/maggie/Dropbox/somefile.pdf --destinationdirectory /Users/maggie/backupfolder --run'
+```
+
+Examine all scheduled backups on the system:
+
+```
+python tinybackup.py --sourcefile /Users/maggie/Dropbox/somefile.pdf --destinationdirectory /Users/maggie/backupfolder --statusof all'
+```
+
+Remove all scheduled backups using the same source file and destination directory, regardless of when they are scheduled:
+
+```
+python tinybackup.py --sourcefile /Users/maggie/Dropbox/somefile.pdf --destinationdirectory /Users/maggie/backupfolder --uninstall "jobs with this source and destination"'
+```
+
 # Usage
+
+```
+python tinybackup.py (--install | --uninstall JOB_FILTER | --statusof JOB_FILTER)
+                     [--run] [--time TIME] [--keeprevisions REVISIONS]
+                     --sourcefile SOURCEFILE --destinationdirectory
+                     DESTINATIONDIRECTORY [--debug] [--noop]
+
+Schedule a repeated backup of a single file.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --install, -i         Schedule this script to run repeatedly at a given
+                        time.
+  --uninstall JOB_FILTER, -u JOB_FILTER
+                        Remove all scheduled runs of this script for a given
+                        SOURCEFILE and DESTINATIONDIRECTORY
+  --statusof JOB_FILTER, -s JOB_FILTER
+                        Display all already-scheduled runs of this script for
+                        a given SOURCEFILE and DESTINATIONDIRECTORY
+  --run, -r             Run a backup immediately, in addition to any other
+                        actions taken.
+  --time TIME, -t TIME  Time in the future to schedule (or uninstall) backup
+                        jobs
+  --keeprevisions REVISIONS, -k REVISIONS
+                        How many backups of the file to keep. Old ones will be
+                        rotated out.
+  --sourcefile SOURCEFILE, -f SOURCEFILE
+                        File to back up.
+  --destinationdirectory DESTINATIONDIRECTORY, --destdir DESTINATIONDIRECTORY, -d DESTINATIONDIRECTORY
+                        Directory in which to store backed up files.
+  --debug               Enable debug output.
+  --noop                Do scheduling and job installation as normal, but do
+                        not actually create any backups; write diagnostic
+                        output instead.
+```
 
 For detailed commandline usage and help information, do `tinybackup.py --help`. A summary of commandline usage is provided below:
 
@@ -51,17 +127,43 @@ For detailed commandline usage and help information, do `tinybackup.py --help`. 
 
 `--run` mode can be combined with `--install` mode (to take an initial backup and schedule future backups in one invocation), but cannot be combined with any other modes.
 
+Once you have selected a mode, you must select a source file and destination directory, via the `--sourcefile` and `--destinationdirectory` parameters. 
 
+To simply perform a backup operation once, you can do `tinybackup.py --sourcefile /path/to/file --destinationdirectory /path/to/destination/dir/ --run`.
+
+The `--install` mode and `--uninstall` mode may require a `--time` argument to function; see the "Time Specifications" section below for more info.
 
 ### Time Specifications
 
-Time specifications relative to the time the user runs `tinybackup.py` are also available. For example, `--time +1hour` will run the backup job approximately one hour from when the command is entered, and again one hour after that, and so on. Running multiple backup jobs 
+When scheduling an instalce of `atjob-tinybackup`, it needs to know when in the future to run (or, in the case of `--uninstall`, what schedule of jobs to uninstall). `atjob-tinybackup` accepts any time specification accepted by [`at(1)`](https://linux.die.net/man/1/at). For example, the following can be supplied to the `--time` argument:
+
+- `00:00`: run at midnight.
+- `'3:00pm 4/27' run at 3pm on April 27th.
+- `'15:00 4/27' run at 3pm ([1500 hours](https://en.wikipedia.org/wiki/24-hour_clock)) on April 27th.
+- `'+1day'`: run 1 day after this.
+- `'+7 minutes'`: run 7 minutes after this. 
+- `'3:00 +1 year': run 1 year from now, at 3am.
+- `teatime`: run at 4:00pm.
+
+For more examples, see `man at` on your system, or [this excellent article on the formats supported by `at`](http://www.computerhope.com/unix/uat.htm).
+
+Time specifications relative to the time the user runs `tinybackup.py` are available. For example, `--time +1hour` will run the backup job approximately one hour from when the command is entered, and again one hour after that, and so on. Using multiple backup jobs with the same absolute or relative time specification (regardless of when they actually _run_) may result in unexpected behavior; see the "Limitations" section below for more info.
+
+`atjob-tinybackup` will reject invalid time specifications. If you aren't sure whether a time specification is valid, try using it to schedule a backup job of an empty file (for example, `/dev/null`), or schedule a backup and then immediately unschedule (`--uninstall`) it.
 
 ### Absolute and Relative Paths
 
-### Job Identification Levels
+Regardless of how they are supplied to `tinybackup.py`, all paths are treated as absolute, and are "frozen" when the first backup is scheduled. `tinybackup.py --sourcefile ../myfile.txt --install --time +1day` will only ever back up the file called `myfile.txt` in the directory above the one in which `tinybackup.py` was run by the user. If `tinybackup.py` or the file are moved, the backup process will not change.
 
-# Examples
+### Job Filters
+
+When using the `--statusof` or `--uninstall` flags, it is necessary to specify what jobs you are interested in. For example, if you have a handful of `atjob-tinybackup` jobs scheduled on a machine and one of them has become pointless, it would be a hassle to have to uninstall all of them and then reinstall all except the pointless one. In support of that, `tinybackup.py` supports a handful of "job filter" criteria that can be used to identify a particular job. 
+
+The below criteria are valid arguments (case insensitively) to `--statusof` or `--uninstall`:
+
+- `all backup jobs`, `all`, or `queue`: Operate on all jobs created in the `at` queue used by `atjob-tinybackup`. Note that this is **not** the default queue used when scheduling jobs manually via `echo job... | at ...`.
+- `jobs with this source and destination`, `files`, `same files`: Operate on jobs with the same (absolute, not relative) `--sourcefile` and `--destinationdirectory` arguments. Additionally implies the `all backup jobs` filter (filters are _AND_ed together).
+- `jobs exactly like this one`, `jobs just like this one`, `jobs identical to this one`, `this`, `this job`, `this time`, `time`: Operate on jobs with the same `--time` string as is supplied to whatever mode (e.g. `--install --time +1day`) is being used. Additionally implies the `jobs with this source and destination` filter (filters are _AND_ed together). See the "Limitations" section for more info.
 
 # Limitations
 
@@ -72,14 +174,26 @@ Time specifications relative to the time the user runs `tinybackup.py` are also 
 
 # FAQ
 
-- Something isn't working; my backups won't run when scheduled, and I don't know why. What can I do to figure out what's wrong?
-- I don't have this script installed any more, but backup jobs are still running? How can I turn them off?
-- What if I just want to run one backup at some point in the future, but don't want them to keep reoccurring after that until I uninstall them?
-- Can I use `atjob-tinybackup` inside a larger Pyhton program?
-A: Not directly. You'll have to shell out and run it.
+Q: Something isn't working; my backups won't run when scheduled, and I don't know why. What can I do to figure out what's wrong?
+A: Run `tinybackup.py` with the `--debug` argument to see what it's doing when it runs on schedule. That argument will cause it to write its output to a file called `debug.txt` in _the directory in which you invoked `tinybackup.py`. For example, if you did `cd /home/me; ./mypath/tinybackup.py ... --debug`, output would be written to `/home/me/debug.txt`. If that doesn't help you fix the issue, follow the instructions in the "Bugs/Contributing" section below.
+
+Q: I don't have this script installed any more, but backup jobs are still running? How can I turn them off?
+A: Run `at -l -q z | cut -f1 | xargs at -r` to remove jobs scheduled by this version of `atjob-tinybackup` from your system. Run `at -l | cut -f1 | xargs at -r` to remove all scheduled jobs on your system.
+
+Q: What if I just want to run one backup at some point in the future, but don't want them to keep reoccurring after that until I uninstall them?
+A: Just use `at` directly. Take whatever time-string you'd supply to `--install` if you wanted to schedule the script to run in the future, and supply it to `at` and `echo` a `--run`-mode invocation of `atjob-tinybackup` to it, like so:
+```
+echo python3 tinybackup.py --sourcefile /path/to/file --destdir /path/to/dir/ --run | at "+2 days"
+```
+
+Q: Can I use `atjob-tinybackup` inside a larger Pyhton program?
+A: Not directly. You'll have to shell out and run it. Parts of the scheduling system only work because the entire program is in a single, executable Python script. You can `import` the `tinybackup.py` file, but it probably won't work the way you want it to unless run directly.
+
+Q: How can I integrate `atjob-tinybackup` with my existing scheduler or backup system?
+A: `atjob-tinybackup` should generally be used with its own (`at`-bases) scheduling. If you want to schedule it or run it as part of another script, you can use `tinybackup.py ... --run` mode to just execute a backup, and not do any scheduling. In that case, however, you might be better off just using `logrotate` directly to run your backups; `tinybackup.py` doesn't add much. See [the `logrotate` documentation](https://linux.die.net/man/8/logrotate) for more info.
 
 # Bugs/Contributing
 
-File an issue on [the GitHub repository for this project](https://github.com/zbentley/atjob-tinybackup).
+File an issue or pull request on [the GitHub repository for this project](https://github.com/zbentley/atjob-tinybackup).
 
-When filing an issue, please run the `tinybackup.py` script with the parameters that are causing the bug, and additionally the `--debug` flag. Debug output will be written to `debug.txt` in the directory where you invoked `tinybackup.py`. Please also include as many details about your host system and the files you are working with as possible.
+When filing an issue, please run the `tinybackup.py` script with the parameters that are causing the bug, and additionally the `--debug` and `--noop` flags. Debug output will be written to `debug.txt` in the directory where you invoked `tinybackup.py`. Please also include as many details about your host system and the files you are working with as possible.
