@@ -37,7 +37,8 @@ This program has the following runtime requirements:
 - Install logrotate: `brew install logrotate`.
 - Start the `at` daemon: `sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.atrun.plist`.
 	- If that command does not work, open a terminal and type `man atrun` for activation instructions specific to your distribution of OSX.
-- Put this script in a stable location. If you move or delete the `tinybackup.py` file in between scheduled backups, all future backups will fail. You can have multiple copies of the script on your system. Many users find it convenient to place a copy of the `tinybackup.py` script in the same folder as the files which they are using it to back up.
+- Download the `tinybackup.py` script to some location. For example, to download it to your destkop, do: `curl https://raw.githubusercontent.com/zbentley/atjob-tinybackup/master/tinybackup.py > ~/Desktop/tinybackup.py`
+  - Alternatively, you can open `https://raw.githubusercontent.com/zbentley/atjob-tinybackup/master/tinybackup.py` in your browser, and copy the contents of that page into a file somewhere on your computer. You can call that file whataever you want, but this manual refers to it as `tinybackup.py`.
 
 # Linux:
 
@@ -128,6 +129,8 @@ For detailed commandline usage and help information, do `tinybackup.py --help`. 
 `--run` mode can be combined with `--install` mode (to take an initial backup and schedule future backups in one invocation), but cannot be combined with any other modes.
 
 Once you have selected a mode, you must select a source file and destination directory, via the `--sourcefile` and `--destinationdirectory` parameters. 
+
+In `--install` or `--run` mode, the `--keeprevisions` parameter accepts a number (the default is 14 if none is specified) of backup entries to keep. The folder in `--destinationdirectory` will contain up to that many backups. When new backups are added, old ones will be removed until the folder contains the number specified by `--keeprevisions` of backups.
 
 To simply perform a backup operation once, you can do `tinybackup.py --sourcefile /path/to/file --destinationdirectory /path/to/destination/dir/ --run`.
 
