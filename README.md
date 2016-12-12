@@ -138,15 +138,15 @@ The `--install` mode and `--uninstall` mode may require a `--time` argument to f
 
 ### Time Specifications
 
-When scheduling an instalce of `atjob-tinybackup`, it needs to know when in the future to run (or, in the case of `--uninstall`, what schedule of jobs to uninstall). `atjob-tinybackup` accepts any time specification accepted by [`at(1)`](https://linux.die.net/man/1/at). For example, the following can be supplied to the `--time` argument:
+When scheduling an instance of `atjob-tinybackup`, it needs to know when in the future to run (or, in the case of `--uninstall`, what schedule of jobs to uninstall). `atjob-tinybackup` accepts any time specification accepted by [`at(1)`](https://linux.die.net/man/1/at). For example, the following can be supplied to the `--time` argument:
 
-- `00:00`: run at midnight.
-- `'3:00pm 4/27' run at 3pm on April 27th.
-- `'15:00 4/27' run at 3pm ([1500 hours](https://en.wikipedia.org/wiki/24-hour_clock)) on April 27th.
-- `'+1day'`: run 1 day after this.
-- `'+7 minutes'`: run 7 minutes after this. 
-- `'3:00 +1 year': run 1 year from now, at 3am.
-- `teatime`: run at 4:00pm.
+- `--time '00:00'`: run at midnight.
+- `--time '3:00pm 4/27'` run at 3pm on April 27th.
+- `--time '15:00 4/27'` run at 3pm ([1500 hours](https://en.wikipedia.org/wiki/24-hour_clock)) on April 27th.
+- `--time '+1day'`: run 1 day after this.
+- `--time '+7 minutes'`: run 7 minutes after this. 
+- `--time '3:00 +1 year'`: run 1 year from now, at 3am.
+- `--time teatime`: run at 4:00pm.
 
 For more examples, see `man at` on your system, or [this excellent article on the formats supported by `at`](http://www.computerhope.com/unix/uat.htm).
 
