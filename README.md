@@ -67,6 +67,12 @@ For detailed commandline usage and help information, do `tinybackup.py --help`. 
 - The opposite of that scenario is also true. If two jobs are scheduled with the same relative time string (e.g. `--time 'now + 1 day'`), they will be removed by any `--uninstall "jobs exactly like this one"` command, _regardless of when the user ran the commands to schedule both jobs_. For example, if a user scheduled one job with `--time +1day` at noon, and scheduled another, identical job at midnight, `--uninstall --time +1day` would destroy both jobs. 
 - Behavior when a system is shut down, asleep, has a stopped `at` daemon or equivalent, or is otherwise not running jobs, is currently undefined. Behavior in these cases is left up to `at`; check your system's implementation information for more info via `man at`.
 
+# FAQ
+
+- Something isn't working; my backups won't run when scheduled, and I don't know why. What can I do to figure out what's wrong?
+- I don't have this script installed any more, but backup jobs are still running? How can I turn them off?
+- What if I just want to run one backup at some point in the future, but don't want them to keep reoccurring after that until I uninstall them?
+
 # Bugs/Contributing
 
-File an issue on [the GitHub repository for this project](https://github.com/zbentley/atjob-tinybackup).
+File an issue on [the GitHub repository for this project](https://github.com/zbentley/atjob-tinybackup). When filing an issue, please run the `tinybackup.py` script with the parameters that are causing the bug, and additionally the `--debug` flag. Debug output will be written to `debug.txt` in the directory where you invoked `tinybackup.py`. Please also include as many details about your host system and the files you are working with as possible.
