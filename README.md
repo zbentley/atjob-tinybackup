@@ -175,23 +175,23 @@ The below criteria are valid arguments (case insensitively) to `--statusof` or `
 
 # FAQ
 
-Q: Something isn't working; my backups won't run when scheduled, and I don't know why. What can I do to figure out what's wrong?
-A: Run `tinybackup.py` with the `--debug` argument to see what it's doing when it runs on schedule. That argument will cause it to write its output to a file called `debug.txt` in _the directory in which you invoked `tinybackup.py`. For example, if you did `cd /home/me; ./mypath/tinybackup.py ... --debug`, output would be written to `/home/me/debug.txt`. If that doesn't help you fix the issue, follow the instructions in the "Bugs/Contributing" section below.
+- **Q: Something isn't working; my backups won't run when scheduled, and I don't know why. What can I do to figure out what's wrong?**
+- **A:** Run `tinybackup.py` with the `--debug` argument to see what it's doing when it runs on schedule. That argument will cause it to write its output to a file called `debug.txt` in _the directory in which you invoked `tinybackup.py`. For example, if you did `cd /home/me; ./mypath/tinybackup.py ... --debug`, output would be written to `/home/me/debug.txt`. If that doesn't help you fix the issue, follow the instructions in the "Bugs/Contributing" section below.
 
-Q: I don't have this script installed any more, but backup jobs are still running? How can I turn them off?
-A: Run `at -l -q z | cut -f1 | xargs at -r` to remove jobs scheduled by this version of `atjob-tinybackup` from your system. Run `at -l | cut -f1 | xargs at -r` to remove all scheduled jobs on your system.
+- **Q: I don't have this script installed any more, but backup jobs are still running? How can I turn them off?**
+- **A:** Run `at -l -q z | cut -f1 | xargs at -r` to remove jobs scheduled by this version of `atjob-tinybackup` from your system. Run `at -l | cut -f1 | xargs at -r` to remove all scheduled jobs on your system.
 
-Q: What if I just want to run one backup at some point in the future, but don't want them to keep reoccurring after that until I uninstall them?
-A: Just use `at` directly. Take whatever time-string you'd supply to `--install` if you wanted to schedule the script to run in the future, and supply it to `at` and `echo` a `--run`-mode invocation of `atjob-tinybackup` to it, like so:
+- **Q: What if I just want to run one backup at some point in the future, but don't want them to keep reoccurring after that until I uninstall them?**
+- **A:** Just use `at` directly. Take whatever time-string you'd supply to `--install` if you wanted to schedule the script to run in the future, and supply it to `at` and `echo` a `--run`-mode invocation of `atjob-tinybackup` to it, like so:
 ```
 echo python3 tinybackup.py --sourcefile /path/to/file --destdir /path/to/dir/ --run | at "+2 days"
 ```
 
-Q: Can I use `atjob-tinybackup` inside a larger Pyhton program?
-A: Not directly. You'll have to shell out and run it. Parts of the scheduling system only work because the entire program is in a single, executable Python script. You can `import` the `tinybackup.py` file, but it probably won't work the way you want it to unless run directly.
+- **Q: Can I use `atjob-tinybackup` inside a larger Pyhton program?**
+- **A:** Not directly. You'll have to shell out and run it. Parts of the scheduling system only work because the entire program is in a single, executable Python script. You can `import` the `tinybackup.py` file, but it probably won't work the way you want it to unless run directly.
 
-Q: How can I integrate `atjob-tinybackup` with my existing scheduler or backup system?
-A: `atjob-tinybackup` should generally be used with its own (`at`-bases) scheduling. If you want to schedule it or run it as part of another script, you can use `tinybackup.py ... --run` mode to just execute a backup, and not do any scheduling. In that case, however, you might be better off just using `logrotate` directly to run your backups; `tinybackup.py` doesn't add much. See [the `logrotate` documentation](https://linux.die.net/man/8/logrotate) for more info.
+- **Q: How can I integrate `atjob-tinybackup` with my existing scheduler or backup system?**
+- **A:** `atjob-tinybackup` should generally be used with its own (`at`-bases) scheduling. If you want to schedule it or run it as part of another script, you can use `tinybackup.py ... --run` mode to just execute a backup, and not do any scheduling. In that case, however, you might be better off just using `logrotate` directly to run your backups; `tinybackup.py` doesn't add much. See [the `logrotate` documentation](https://linux.die.net/man/8/logrotate) for more info.
 
 # Bugs/Contributing
 
