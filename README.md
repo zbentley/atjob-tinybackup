@@ -50,13 +50,11 @@ Coming soon (tested working on FreeBSD; I just have to find time to document the
 
 # Examples
 
-
 Back up `myfile.txt` in the current user's home directory (`/Users/username` on Mac OSX) into the `mydir` directory in the current user's home directory. Run one backup immediately, and another one at 2:00am every day in the future:
 
 ```
 python tinybackup.py --sourcefile ~myfile.txt --destinationdirectory ~mydir/ --install --run --time '2:00am'
 ```
-
 
 Remove (unschedule all future occurrences of) the backup scheduled in the example above:
 ```
@@ -66,19 +64,19 @@ python tinybackup.py --sourcefile ~myfile.txt --destinationdirectory ~mydir/ --u
 Run a single backup (do not schedule any future backups) of the file `/Users/maggie/Dropbox/somefile.pdf` to the directory `/Users/maggie/backupfolder/`:
 
 ```
-python tinybackup.py --sourcefile /Users/maggie/Dropbox/somefile.pdf --destinationdirectory /Users/maggie/backupfolder --run'
+python tinybackup.py --sourcefile /Users/maggie/Dropbox/somefile.pdf --destinationdirectory /Users/maggie/backupfolder --run
 ```
 
 Examine all scheduled backups on the system:
 
 ```
-python tinybackup.py --sourcefile /Users/maggie/Dropbox/somefile.pdf --destinationdirectory /Users/maggie/backupfolder --statusof all'
+python tinybackup.py --statusof all
 ```
 
 Remove all scheduled backups using the same source file and destination directory, regardless of when they are scheduled:
 
 ```
-python tinybackup.py --sourcefile /Users/maggie/Dropbox/somefile.pdf --destinationdirectory /Users/maggie/backupfolder --uninstall "jobs with this source and destination"'
+python tinybackup.py --sourcefile /Users/maggie/Dropbox/somefile.pdf --destinationdirectory /Users/maggie/backupfolder --uninstall "jobs with this source and destination"
 ```
 
 # Usage
