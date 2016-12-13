@@ -262,7 +262,9 @@ def parse_args():
 	if not ( args.run or args.install or args.uninstall or args.statusof ):
 		parser.error("At least one of --[run,install,uninstall,statusof] is required")
 
+	logger().debug(args)
 	if args.debug:
+
 		logger().setLevel(logging.DEBUG)
 		logger().debug(args)
 	return args
@@ -419,7 +421,7 @@ def main():
 		if jobs:
 			i("Found {} jobs (job IDs are random):\n".format(len(jobs)))
 			i("\n\n".join(
-				"Job ID {id} is scheduled for {schedule}\nJob command: ".format(**job) + re.sub(stripregex, " ", job["command"])
+				"Job ID {id} is scheduled for {schedule}".format(**job)
 				for job in jobs
 			))
 		else:
